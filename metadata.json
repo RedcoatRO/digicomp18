@@ -1,0 +1,6 @@
+{
+  "name": "SImulator Windows 11 - Exercitiul 18",
+  "description": "A simulation of the Windows 11 network troubleshooting experience. Users diagnose and fix a 'no internet connection' error by enabling WiFi, entering a password, activating the network adapter, and running the troubleshooter.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
