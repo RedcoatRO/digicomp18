@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { TroubleshootingStep, TroubleshootingScenario, SettingsPage, ConnectionStatus } from '../types';
+import { TroubleshootingStep, TroubleshootingScenario, SettingsPage, ConnectionStatus, ActionType } from '../types';
 import { useAppContext } from '../contexts/AppContext';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import {
@@ -37,7 +37,7 @@ const SettingsWindow: React.FC = () => {
         isProxyEnabled, setProxyEnabled, isDriverOutdated, setDriverOutdated, 
         simulatedDevices, handleToggleDeviceEnabled, connectionStatus,
         openWindow, addNotification, vpnStatus, handleToggleVpn,
-        connectionHistory
+        connectionHistory, logAction
     } = useAppContext();
 
     const windowRef = useRef<HTMLDivElement>(null);
@@ -92,7 +92,10 @@ const SettingsWindow: React.FC = () => {
         const correctPassword = 'password123';
         const network = networks.find(n => n.ssid === 'HomeWiFi');
         
-        if (password !== (network?.savedPassword || correctPassword)) {
+        const isCorrect = password === (network?.savedPassword || correctPassword);
+        logAction(ActionType.SUBMIT_WIFI_PASSWORD, { correct: isCorrect });
+
+        if (!isCorrect) {
             setPasswordStatus('incorrect');
             return;
         }
@@ -102,17 +105,21 @@ const SettingsWindow: React.FC = () => {
             setNetworks(updatedNetworks);
         }
         setTimeout(() => setStep(TroubleshootingStep.AUTOMATIC_FIX), 1000);
-    }, [password, networks, setNetworks]);
+    }, [password, networks, setNetworks, logAction]);
     
     const handleEnableAdapter = useCallback(() => {
         const problematicDevice = simulatedDevices.find(d => d.isProblematic);
-        if (problematicDevice) handleToggleDeviceEnabled(problematicDevice.id);
+        if (problematicDevice) {
+            handleToggleDeviceEnabled(problematicDevice.id);
+            logAction(ActionType.ENABLE_ADAPTER);
+        }
         setTimeout(() => setStep(TroubleshootingStep.AUTOMATIC_FIX), 1000);
-    }, [simulatedDevices, handleToggleDeviceEnabled]);
+    }, [simulatedDevices, handleToggleDeviceEnabled, logAction]);
     
     const runTroubleshooter = useCallback(() => {
         setIsDiagnosing(true);
         setDiagLog([]);
+        logAction(ActionType.RUN_TROUBLESHOOTER);
         const shouldFail = Math.random() < 0.3;
         
         const diagnosticSteps = shouldFail
@@ -132,7 +139,7 @@ const SettingsWindow: React.FC = () => {
                 }
             }, (index + 1) * 1500);
         });
-    }, [completeTroubleshooting]);
+    }, [completeTroubleshooting, logAction]);
 
     const networkProperties = {
       'SSID': 'HomeWiFi', 'Protocol': 'Wi-Fi 5 (802.11ac)', 'Tip de securitate': 'WPA2-Personal',

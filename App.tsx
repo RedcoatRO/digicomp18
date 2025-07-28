@@ -15,15 +15,16 @@ const AddNetworkModal = React.lazy(() => import('./components/AddNetworkModal'))
 const ContactIspModal = React.lazy(() => import('./components/ContactIspModal'));
 const SecurityWarningModal = React.lazy(() => import('./components/SecurityWarningModal'));
 const StartMenu = React.lazy(() => import('./components/StartMenu'));
+const EvaluationModal = React.lazy(() => import('./components/EvaluationModal'));
 
 
 const App: React.FC = () => {
   const { theme } = useTheme();
   const { 
     activeWindow, 
-    connectionStatus, 
     isInitialErrorVisible, 
-    handleOpenTroubleshooter 
+    handleOpenTroubleshooter,
+    isEvaluationModalOpen,
   } = useAppContext();
 
   const backgroundImageUrl = theme === 'light' 
@@ -31,6 +32,8 @@ const App: React.FC = () => {
     : "url('https://picsum.photos/seed/windows11dark/1920/1080')";
 
   const renderActiveWindow = () => {
+    // The evaluation modal is special and can overlay other windows.
+    // It's handled separately.
     switch (activeWindow) {
       case 'settings': return <SettingsWindow />;
       case 'wordpad': return <WordpadWindow />;
@@ -65,6 +68,7 @@ const App: React.FC = () => {
         </div>
       }>
         {renderActiveWindow()}
+        {isEvaluationModalOpen && <EvaluationModal />}
       </Suspense>
 
       <NotificationHost />

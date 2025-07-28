@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ConnectionStatus } from '../types';
-import { WifiIcon, WifiOffIcon, BluetoothIcon, AirplaneModeIcon, ChevronRightIcon, SunIcon, MoonIcon, BrowserIcon } from './icons';
+import { ConnectionStatus, ActionType } from '../types';
+import { WifiIcon, WifiOffIcon, BluetoothIcon, AirplaneModeIcon, ChevronRightIcon, SunIcon, MoonIcon, BrowserIcon, HelpIcon } from './icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAppContext } from '../contexts/AppContext';
 
@@ -26,7 +26,7 @@ const QuickMenuItem: React.FC<{ icon: React.ReactNode, label: string, sublabel?:
 const Taskbar: React.FC = () => {
   const { 
     connectionStatus, handleOpenTroubleshooter, handleSearch, isAirplaneModeOn, 
-    handleToggleAirplaneMode, openWindow, toggleStartMenu 
+    handleToggleAirplaneMode, openWindow, toggleStartMenu, score, requestHint, finishEvaluation, isEvaluationModalOpen
   } = useAppContext();
   
   const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false);
@@ -132,7 +132,21 @@ const Taskbar: React.FC = () => {
             </button>
         </div>
         
-        <div className="flex items-center h-full space-x-4">
+        <div className="flex items-center h-full space-x-2">
+            {!isEvaluationModalOpen && (
+                 <div className="flex items-center space-x-2 bg-gray-300/50 dark:bg-black/20 px-3 py-1 rounded-full">
+                    <div className="flex items-center space-x-2">
+                        <span className="text-xs font-semibold">Scor:</span>
+                        <span className="text-sm font-bold w-6 text-center">{score}</span>
+                    </div>
+                    <button onClick={requestHint} className="p-1 rounded-full hover:bg-gray-400/50 dark:hover:bg-white/20" aria-label="Request a hint">
+                        <HelpIcon className="w-5 h-5 text-yellow-500" />
+                    </button>
+                    <button onClick={finishEvaluation} className="px-3 py-1 text-xs font-semibold bg-green-500 text-white rounded-full hover:bg-green-600">
+                        Verifică-mă!
+                    </button>
+                 </div>
+            )}
           <div className="text-xs text-right hidden sm:block">
               <div>{currentTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
               <div>{currentTime.toLocaleDateString()}</div>

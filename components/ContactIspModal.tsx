@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
+import { ActionType } from '../types';
 import { SupportIcon } from './icons';
 import { useAppContext } from '../contexts/AppContext';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 const ContactIspModal: React.FC = () => {
-    const { closeWindow } = useAppContext();
+    const { closeWindow, logAction } = useAppContext();
     const modalRef = useRef<HTMLDivElement>(null);
     useFocusTrap(modalRef);
 
@@ -14,6 +15,7 @@ const ContactIspModal: React.FC = () => {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        logAction(ActionType.CONTACT_ISP);
         setIsSubmitted(true);
         setTimeout(() => {
             closeWindow('contactIsp');

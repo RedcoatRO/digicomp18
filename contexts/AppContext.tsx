@@ -2,9 +2,11 @@ import React, { createContext, useState, useEffect, useContext, useMemo, useCall
 import { 
     AppState, AppContextType, ConnectionStatus, TroubleshootingScenario, WifiNetwork, 
     BrowserTab, SimulatedDevice, ConnectionHistoryEntry, VpnStatus, ActiveWindow,
-    Notification, NotificationType
+    Notification, NotificationType, ActionType, ActionLogEntry, EvaluationResult
 } from '../types';
 import { BluetoothIcon, AudioIcon, NetworkIcon } from '../components/icons';
+import { calculateScore } from '../utils/evaluation';
+import { sendEvaluationResult } from '../utils/communication';
 
 // 1. Create the Context
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -40,6 +42,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             connectionHistory: [],
             securityWarningSsid: null,
             notifications: [],
+            // Evaluation state
+            actions: [],
+            score: 100,
+            isEvaluationModalOpen: false,
+            evaluationResult: null,
         };
         try {
             const savedState = localStorage.getItem('windowsSimState');
@@ -50,25 +57,25 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                     ...defaultState,
                     ...parsedState,
                     activeWindow: null, // Windows should not be open on reload
+                    isEvaluationModalOpen: false,
                     simulatedDevices: defaultState.simulatedDevices,
                     notifications: [],
+                    actions: [], // Reset actions on reload
+                    score: 100,
                 };
             }
         } catch (error) { console.error("Failed to parse state from localStorage", error); }
         return defaultState;
     });
 
-    // Effect to save state to localStorage on change
+    // Effect to calculate live score whenever actions change
     useEffect(() => {
-        try {
-            const stateToSave = { ...state };
-            // Exclude non-serializable or transient state
-            delete (stateToSave as Partial<AppState>).simulatedDevices;
-            delete (stateToSave as Partial<AppState>).activeWindow;
-            delete (stateToSave as Partial<AppState>).notifications;
-            localStorage.setItem('windowsSimState', JSON.stringify(stateToSave));
-        } catch (error) { console.error("Failed to save state to localStorage", error); }
-    }, [state]);
+        // Don't calculate score if evaluation is finished
+        if (state.isEvaluationModalOpen) return;
+        
+        const liveScoreResult = calculateScore(state.actions, state, true);
+        setState(prev => ({ ...prev, score: liveScoreResult.score }));
+    }, [state.actions, state.isEvaluationModalOpen]);
 
     // --- NOTIFICATION HANDLERS (integrated from NotificationContext) ---
     const removeNotification = useCallback((id: number) => {
@@ -80,29 +87,78 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         setState(prev => ({ ...prev, notifications: [...prev.notifications, { id, title, message, type }] }));
         setTimeout(() => removeNotification(id), 5000);
     }, [removeNotification]);
+    
+    // --- EVALUATION HANDLERS ---
+    const logAction = useCallback((type: ActionType, payload?: any) => {
+        // Prevent logging actions after evaluation is complete
+        if (state.isEvaluationModalOpen) return;
+        
+        const entry: ActionLogEntry = { type, payload, timestamp: Date.now() };
+        setState(prev => ({ ...prev, actions: [...prev.actions, entry] }));
+    }, [state.isEvaluationModalOpen]);
+
+    const requestHint = useCallback(() => {
+        logAction(ActionType.REQUEST_HINT);
+        let hint = "Încearcă să folosești depanatorul de probleme de rețea din Setări.";
+        switch (state.troubleshootingScenario) {
+            case TroubleshootingScenario.WIFI_PASSWORD:
+                hint = "Verifică dacă ai introdus parola corectă. Poți găsi parola în fișierul 'Parola WiFi.txt'.";
+                break;
+            case TroubleshootingScenario.ADAPTER_DISABLED:
+                hint = "Adaptorul de rețea ar putea fi dezactivat. Verifică în setările Wi-Fi sau în Manager Dispozitive.";
+                break;
+            case TroubleshootingScenario.AIRPLANE_MODE_ON:
+                hint = "Modul Avion este activat. Acesta oprește toate comunicațiile wireless. Îl poți dezactiva din meniul rapid.";
+                break;
+        }
+        addNotification("Indiciu", hint, "info");
+    }, [state.troubleshootingScenario, addNotification, logAction]);
+
+    const finishEvaluation = useCallback(() => {
+        const result = calculateScore(state.actions, state, false);
+        setState(prev => ({
+            ...prev,
+            isEvaluationModalOpen: true,
+            evaluationResult: result,
+            score: result.score
+        }));
+
+        // Format details for postMessage
+        const detailsString = result.details.map(d => `${d.correct ? '[CORECT]' : '[INCORECT]'} ${d.text}`).join('\n');
+        
+        sendEvaluationResult(
+            result.score,
+            result.maxScore,
+            detailsString,
+            result.tasksCompleted,
+            result.totalTasks
+        );
+    }, [state.actions, state]);
 
 
     // --- WINDOW MANAGEMENT ---
     const openWindow = useCallback((window: NonNullable<ActiveWindow>) => {
+        logAction(ActionType.OPEN_WINDOW, { window });
         if (window === 'browser' && state.connectionStatus !== ConnectionStatus.Connected) {
             addNotification("Eroare", "Browser-ul necesită o conexiune la internet.", "error");
             return;
         }
         setState(prev => ({...prev, activeWindow: window}));
-        // Logic for opening browser with a default tab if none exist
         if(window === 'browser' && state.browserTabs.length === 0) {
             const newTab: BrowserTab = { id: Date.now(), title: 'Google', type: 'search' };
             setState(prev => ({...prev, browserTabs: [newTab], activeTabId: newTab.id}));
         }
-    }, [state.connectionStatus, state.browserTabs.length, addNotification]);
+    }, [state.connectionStatus, state.browserTabs.length, addNotification, logAction]);
 
     const closeWindow = useCallback((window: NonNullable<ActiveWindow>) => {
+        logAction(ActionType.CLOSE_WINDOW, { window });
         setState(prev => prev.activeWindow === window ? { ...prev, activeWindow: null } : prev);
-    }, []);
+    }, [logAction]);
 
     const toggleStartMenu = useCallback(() => {
+        logAction(ActionType.TOGGLE_START_MENU);
         setState(prev => ({ ...prev, activeWindow: prev.activeWindow === 'startMenu' ? null : 'startMenu' }));
-    }, []);
+    }, [logAction]);
 
     // --- BROWSER HANDLERS ---
     const handleBrowserAddTab = useCallback(() => {
@@ -137,6 +193,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
     // --- FEATURE HANDLERS ---
     const handleOpenTroubleshooter = useCallback(() => {
+        // This is the start of a new attempt, but we don't clear actions to see full history
+        // If we wanted to reset, we would clear actions here.
+        
         const scenarios = Object.values(TroubleshootingScenario).filter(v => typeof v === 'number') as TroubleshootingScenario[];
         const randomScenario = scenarios[Math.floor(Math.random() * scenarios.length)];
         const newHistoryEntry: ConnectionHistoryEntry = { timestamp: Date.now(), scenario: randomScenario };
@@ -152,9 +211,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             devicesForScenario = defaultDevices.map(d => d.id === 'net' ? { ...d, isEnabled: false, isProblematic: true } : d);
         }
 
+        openWindow('settings');
         setState(prev => ({
             ...prev,
-            activeWindow: 'settings',
             troubleshootingScenario: randomScenario,
             isInitialErrorVisible: false,
             connectionHistory: [...prev.connectionHistory, newHistoryEntry],
@@ -163,18 +222,19 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             isDriverOutdated: randomScenario === TroubleshootingScenario.DRIVER_OUTDATED,
             simulatedDevices: devicesForScenario,
         }));
-    }, []);
+    }, [openWindow]);
 
     const handleCloseSettings = useCallback((wasFixed: boolean) => {
         closeWindow('settings');
         if (wasFixed) {
+            logAction(ActionType.FIX_CONNECTION_SUCCESS);
             setState(prev => ({ ...prev, connectionStatus: ConnectionStatus.Connecting }));
             setTimeout(() => {
                 setState(prev => ({ ...prev, connectionStatus: ConnectionStatus.Connected, isInitialErrorVisible: false }));
                 addNotification('✅ Conexiune activă!', 'Sunteți conectat la internet.', 'success');
             }, 1000);
         }
-    }, [closeWindow, addNotification]);
+    }, [closeWindow, addNotification, logAction]);
 
     const handleToggleVpn = useCallback(() => {
         if (state.vpnStatus === VpnStatus.Disconnected) {
@@ -200,6 +260,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }, [state.networks, addNotification]);
 
     const handleSearch = useCallback((query: string) => {
+        logAction(ActionType.SEARCH, { query });
         const keywords = ['setări', 'network', 'internet', 'wifi', 'vpn', 'istoric'];
         if (keywords.some(k => query.toLowerCase().includes(k))) {
             handleOpenTroubleshooter();
@@ -211,9 +272,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                 return {...prev, browserTabs: newTabs, activeTabId: newTab.id};
              });
         }
-    }, [handleOpenTroubleshooter, openWindow]);
+    }, [handleOpenTroubleshooter, openWindow, logAction]);
 
-    const handleToggleAirplaneMode = useCallback(() => setState(prev => ({ ...prev, isAirplaneModeOn: !prev.isAirplaneModeOn })), []);
+    const handleToggleAirplaneMode = useCallback(() => {
+        logAction(ActionType.TOGGLE_AIRPLANE_MODE);
+        setState(prev => ({ ...prev, isAirplaneModeOn: !prev.isAirplaneModeOn }));
+    }, [logAction]);
+
     const handleToggleDeviceEnabled = useCallback((deviceId: string) => setState(prev => ({ ...prev, simulatedDevices: prev.simulatedDevices.map(d => d.id === deviceId ? { ...d, isEnabled: !d.isEnabled } : d) })), []);
     const setNetworks = useCallback((networks: WifiNetwork[]) => setState(prev => ({...prev, networks})), []);
     const setProxyEnabled = useCallback((enabled: boolean) => setState(prev => ({...prev, isProxyEnabled: enabled})), []);
@@ -242,7 +307,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         setDriverOutdated,
         addNotification,
         removeNotification,
-    }), [state, openWindow, closeWindow, toggleStartMenu, handleOpenTroubleshooter, handleCloseSettings, handleToggleDeviceEnabled, handleSearch, handleToggleAirplaneMode, handleBrowserTabUpdate, handleBrowserAddTab, handleBrowserCloseTab, handleBrowserSetActiveTab, handleToggleVpn, handleAddNetwork, setNetworks, setProxyEnabled, setDriverOutdated, addNotification, removeNotification]);
+        // Evaluation
+        logAction,
+        requestHint,
+        finishEvaluation
+    }), [state, openWindow, closeWindow, toggleStartMenu, handleOpenTroubleshooter, handleCloseSettings, handleToggleDeviceEnabled, handleSearch, handleToggleAirplaneMode, handleBrowserTabUpdate, handleBrowserAddTab, handleBrowserCloseTab, handleBrowserSetActiveTab, handleToggleVpn, handleAddNetwork, setNetworks, setProxyEnabled, setDriverOutdated, addNotification, removeNotification, logAction, requestHint, finishEvaluation]);
 
     return (
         <AppContext.Provider value={value}>

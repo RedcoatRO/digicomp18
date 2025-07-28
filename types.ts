@@ -89,6 +89,7 @@ export type ActiveWindow =
   | 'contactIsp'
   | 'securityWarning'
   | 'startMenu'
+  | 'evaluation'
   | null;
 
 // --- Types for Notifications ---
@@ -99,6 +100,43 @@ export interface Notification {
   title: string;
   message: string;
   type: NotificationType;
+}
+
+
+// --- Types for Evaluation System ---
+
+export enum ActionType {
+  OPEN_WINDOW,
+  CLOSE_WINDOW,
+  TOGGLE_START_MENU,
+  TOGGLE_AIRPLANE_MODE,
+  SUBMIT_WIFI_PASSWORD,
+  ENABLE_ADAPTER,
+  RUN_TROUBLESHOOTER,
+  CONTACT_ISP,
+  FIX_CONNECTION_SUCCESS,
+  REQUEST_HINT,
+  SEARCH,
+}
+
+export interface ActionLogEntry {
+  type: ActionType;
+  payload?: any;
+  timestamp: number;
+}
+
+export interface EvaluationDetail {
+    text: string;
+    correct: boolean;
+}
+
+export interface EvaluationResult {
+    score: number;
+    maxScore: number;
+    details: EvaluationDetail[];
+    tasksCompleted: number;
+    totalTasks: number;
+    summary: string;
 }
 
 // --- Types for the main Application State and Context ---
@@ -119,6 +157,11 @@ export interface AppState {
   connectionHistory: ConnectionHistoryEntry[];
   securityWarningSsid: string | null;
   notifications: Notification[];
+  // Evaluation state
+  actions: ActionLogEntry[];
+  score: number;
+  isEvaluationModalOpen: boolean;
+  evaluationResult: EvaluationResult | null;
 }
 
 export interface AppContextType extends AppState {
@@ -155,4 +198,9 @@ export interface AppContextType extends AppState {
     // Notifications
     addNotification: (title: string, message: string, type: NotificationType) => void;
     removeNotification: (id: number) => void;
+
+    // Evaluation handlers
+    logAction: (type: ActionType, payload?: any) => void;
+    requestHint: () => void;
+    finishEvaluation: () => void;
 }
